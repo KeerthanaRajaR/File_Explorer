@@ -41,7 +41,8 @@ app.post('/api/ai/remove-bg', async (req, res) => {
   }
 });
 // Folder we will browse
-const BASE_DIR = path.join(__dirname, "files");
+// Folder we will browse (can be overridden by environment variable or config)
+const BASE_DIR = process.env.FILE_EXPLORER_ROOT || path.join(__dirname, "files");
 
 // Helper to get file stats
 const getFileStats = (filePath) => {
@@ -132,7 +133,14 @@ app.get("/api/file", (req, res) => {
     return res.status(400).json({ error: "Path is a directory" });
   }
 
-  // Read file content
+  // Serve image files directly
+  const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.svg', '.webp', '.bmp'];
+  const ext = path.extname(filePath).toLowerCase();
+  if (imageExts.includes(ext)) {
+    return res.sendFile(filePath);
+  }
+
+  // Otherwise, read as text and return JSON
   fs.readFile(filePath, 'utf8', (err, data) => {
     if (err) {
       return res.status(500).json({ error: "Cannot read file" });

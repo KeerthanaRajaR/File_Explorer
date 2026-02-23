@@ -25,6 +25,7 @@ function App() {
     };
   const [items, setItems] = useState([]);
   const [currentPath, setCurrentPath] = useState("");
+  const [folderInput, setFolderInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [viewMode, setViewMode] = useState("grid"); // grid or list
 
@@ -168,9 +169,14 @@ function App() {
     if (item.type === "folder") {
       fetchItems(item.path);
     } else if (isImage(item)) {
+      // Remove leading 'backend/files/' if present
+      let imgPath = item.path;
+      if (imgPath.startsWith('backend/files/')) {
+        imgPath = imgPath.replace('backend/files/', '');
+      }
       setImageViewer({
         item: item,
-        url: `http://localhost:5000/api/thumbnail?path=${encodeURIComponent(item.path)}`
+        url: `http://localhost:5000/api/file?path=${encodeURIComponent(imgPath)}`
       });
     } else {
       // Download file to open
@@ -529,6 +535,22 @@ function App() {
           <h1>📂 File Explorer</h1>
         </div>
         <div className="header-right">
+          {/* Folder Path Input */}
+          <input
+            type="text"
+            value={folderInput}
+            onChange={e => setFolderInput(e.target.value)}
+            placeholder="Enter folder path (e.g., /home/ubundu/demo)"
+            style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ccc', marginRight: '8px', minWidth: '220px' }}
+          />
+          <button
+            className="action-btn"
+            onClick={() => {
+              setCurrentPath("");
+              fetchItems(folderInput);
+            }}
+            title="Go to folder"
+          >Go</button>
           {/* Storage Info */}
           {storageInfo && (
             <div className="storage-indicator" title={`${formatSize(storageInfo.used)} / ${formatSize(storageInfo.total)}`}>
@@ -541,7 +563,6 @@ function App() {
               <span className="storage-text">{formatSize(storageInfo.used)}</span>
             </div>
           )}
-          
           <button 
             className="action-btn"
             onClick={() => fileInputRef.current.click()}
@@ -556,7 +577,6 @@ function App() {
           >
             📁+ Folder
           </button>
-          
           {/* Dark Mode Toggle */}
           <button 
             className="view-btn"
@@ -565,7 +585,6 @@ function App() {
           >
             {darkMode ? '☀️' : '🌙'}
           </button>
-          
           <button 
             className={`view-btn ${viewMode === "grid" ? "active" : ""}`}
             onClick={() => setViewMode("grid")}
@@ -580,7 +599,6 @@ function App() {
           >
             ☰
           </button>
-
         </div>
       </div>
 
@@ -611,7 +629,7 @@ function App() {
         <div className="breadcrumbs">
           <span 
             className="breadcrumb-item clickable"
-            onClick={() => fetchItems("")}
+            onClick={() => fetchItems("backend/files")}
           >
             Home
           </span>
@@ -754,24 +772,10 @@ function App() {
                   <div
                     key={index}
                     className={`item ${selectedItem?.name === item.name ? "selected" : ""} ${selectedItems.has(index) ? "multi-selected" : ""}`}
-                    onClick={(e) => {
-                      if (e.shiftKey || e.ctrlKey) {
-                        toggleItemSelection(index, e);
-                      } else {
-                        handleItemClick(item);
-                      }
-                    }}
+                    onClick={() => handleItemClick(item)}
                     onDoubleClick={() => handleOpenFile(item)}
                     onContextMenu={(e) => handleContextMenu(e, item)}
                   >
-                    {/* Checkbox for multi-select */}
-                    <div className="item-checkbox" onClick={(e) => toggleItemSelection(index, e)}>
-                      <input 
-                        type="checkbox" 
-                        checked={selectedItems.has(index)}
-                        onChange={() => {}}
-                      />
-                    </div>
                     <div className="item-icon">
                       {isImage(item) ? (
                         <img 
@@ -819,10 +823,20 @@ function App() {
             {isImage(selectedItem) && (
               <div className="preview-image-container">
                 <img 
-                  src={`http://localhost:5000/api/thumbnail?path=${encodeURIComponent(selectedItem.path)}`}
+                  src={`http://localhost:5000/api/file?path=${encodeURIComponent(selectedItem.path.replace('backend/files/', ''))}`}
                   alt={selectedItem.name}
                   className="preview-image"
-                  onClick={() => handleOpenFile(selectedItem)}
+                  onClick={() => {
+                    // Open image viewer modal
+                    let imgPath = selectedItem.path;
+                    if (imgPath.startsWith('backend/files/')) {
+                      imgPath = imgPath.replace('backend/files/', '');
+                    }
+                    setImageViewer({
+                      item: selectedItem,
+                      url: `http://localhost:5000/api/file?path=${encodeURIComponent(imgPath)}`
+                    });
+                  }}
                   style={{cursor: 'pointer'}}
                 />
                 <p className="preview-hint">Click to view full size</p>
@@ -839,9 +853,20 @@ function App() {
             
             {/* Action Buttons */}
             <div className="preview-actions">
-              <button className="preview-action-btn" onClick={() => handleOpenFile(selectedItem)}>
-                📂 Open
-              </button>
+              {isImage(selectedItem) && (
+                <button className="preview-action-btn" onClick={() => {
+                  let imgPath = selectedItem.path;
+                  if (imgPath.startsWith('backend/files/')) {
+                    imgPath = imgPath.replace('backend/files/', '');
+                  }
+                  setImageViewer({
+                    item: selectedItem,
+                    url: `http://localhost:5000/api/file?path=${encodeURIComponent(imgPath)}`
+                  });
+                }}>
+                  📂 Open
+                </button>
+              )}
               <button className="preview-action-btn" onClick={() => handleDownload(selectedItem)}>
                 📥 Download
               </button>
@@ -865,8 +890,14 @@ function App() {
           }}>
             📂 Open
           </div>
-          
-
+          {/* Copy Path Option */}
+          <div className="context-menu-item" onClick={() => {
+            navigator.clipboard.writeText(contextMenu.item.path);
+            setContextMenu(null);
+            alert('Path copied to clipboard!');
+          }}>
+            📋 Copy Path
+          </div>
           {contextMenu.item.type === "file" && (
             <>
               {/* Open With... submenu for files */}
@@ -904,9 +935,7 @@ function App() {
               )}
             </>
           )}
-          
           <div className="context-menu-separator"></div>
-          
           <div className="context-menu-item" onClick={() => {
             const selectedItemsList = [contextMenu.item];
             setClipboard({ items: selectedItemsList, operation: 'copy' });
@@ -921,9 +950,7 @@ function App() {
           }}>
             ✂️ Cut
           </div>
-          
           <div className="context-menu-separator"></div>
-          
           <div className="context-menu-item" onClick={() => {
             setRenameDialog({ item: contextMenu.item, newName: contextMenu.item.name });
             setContextMenu(null);
@@ -936,9 +963,7 @@ function App() {
           }}>
             🗑️ Delete
           </div>
-          
           <div className="context-menu-separator"></div>
-          
           <div className="context-menu-item" onClick={() => {
             setShowProperties(contextMenu.item);
             setContextMenu(null);
@@ -1063,12 +1088,16 @@ function App() {
                   <h4>Preview</h4>
                   <div className="properties-preview">
                     <img 
-                      src={`http://localhost:5000/api/thumbnail?path=${encodeURIComponent(showProperties.path)}`}
+                      src={`http://localhost:5000/api/file?path=${encodeURIComponent(showProperties.path.replace('backend/files/', ''))}`}
                       alt={showProperties.name}
                       onClick={() => {
+                        let imgPath = showProperties.path;
+                        if (imgPath.startsWith('backend/files/')) {
+                          imgPath = imgPath.replace('backend/files/', '');
+                        }
                         setImageViewer({
                           item: showProperties,
-                          url: `http://localhost:5000/api/thumbnail?path=${encodeURIComponent(showProperties.path)}`
+                          url: `http://localhost:5000/api/file?path=${encodeURIComponent(imgPath)}`
                         });
                         setShowProperties(null);
                       }}
