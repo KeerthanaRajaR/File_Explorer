@@ -7,6 +7,12 @@
 			"command": "cd backend && node index.js",
 			"isBackground": true,
 			"problemMatcher": []
+		},
+		{
+			"label": "Start Backend Server",
+			"type": "shell",
+			"command": "cd backend && node index.js",
+			"isBackground": true
 		}
 	]
 }

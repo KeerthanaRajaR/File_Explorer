@@ -1,42 +1,44 @@
-import { useEffect, useState, useRef } from "react";
-import "./App.css";
+import React, { useState, useRef, useEffect } from "react";
+import './App.css';
+import { PropertiesDialog } from "./components/PropertiesDialog";
+import { NewFolderDialog } from "./components/NewFolderDialog";
+import { FileItem } from "./components/FileItem";
+
+import {
+  fetchItems as fetchItemsService,
+  handleCreateFolder as createFolderService,
+  handleDelete as deleteService,
+  handleBulkDelete as bulkDeleteService,
+  handleFileUpload as fileUploadService
+} from "./services/fileService";
+
+// Utility functions
+// ...existing code...
+
+
+function formatSize(bytes) {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+}
+
+function formatDate(date) {
+  if (!date) return "";
+  const d = new Date(date);
+  return d.toLocaleString();
+}
 
 function App() {
-
-
-    const handleAIRemoveBG = async (item) => {
-      try {
-        const response = await fetch('http://localhost:5000/api/ai/remove-bg', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: item.path })
-        });
-        const data = await response.json();
-        if (data.success) {
-          alert('Background removed image created: ' + data.outPath);
-          fetchItems(currentPath);
-        } else {
-          alert(data.error || 'Remove background failed');
-        }
-      } catch (err) {
-        alert('Remove background failed!');
-        console.error(err);
-      }
-    };
+  // State hooks
   const [items, setItems] = useState([]);
+  const [selectedItems, setSelectedItems] = useState(new Set());
+  const [clipboard, setClipboard] = useState(null);
   const [currentPath, setCurrentPath] = useState("");
   const [folderInput, setFolderInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [viewMode, setViewMode] = useState("grid"); // grid or list
-
-
-    // Check if image
-    const isImage = (item) => {
-      const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'bmp'];
-      return imageExts.includes(item.extension);
-    };
-
-
+  const [viewMode, setViewMode] = useState("grid");
   const [selectedItem, setSelectedItem] = useState(null);
   const [fileContent, setFileContent] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
@@ -45,49 +47,81 @@ function App() {
   const [renameDialog, setRenameDialog] = useState(null);
   const [dragActive, setDragActive] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortBy, setSortBy] = useState("name"); // name, size, date
-  const [sortOrder, setSortOrder] = useState("asc"); // asc, desc
-  const [filterType, setFilterType] = useState("all"); // all, folder, file, images, documents
+  const [sortBy, setSortBy] = useState("name");
+  const [sortOrder, setSortOrder] = useState("asc");
+  const [filterType, setFilterType] = useState("all");
   const [darkMode, setDarkMode] = useState(false);
-  const [selectedItems, setSelectedItems] = useState(new Set());
-  const [clipboard, setClipboard] = useState(null); // {items: [], operation: 'copy' or 'cut'}
   const [storageInfo, setStorageInfo] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(null);
-  const [gridSize, setGridSize] = useState("medium"); // small, medium, large
-  const [imageViewer, setImageViewer] = useState(null); // {item, url}
-  const [showProperties, setShowProperties] = useState(null); // item to show properties
+  const [gridSize, setGridSize] = useState("medium");
+  const [imageViewer, setImageViewer] = useState(null);
+  const [showProperties, setShowProperties] = useState(null);
   const fileInputRef = useRef(null);
 
-  // Fetch files and folders
-  const fetchItems = async (path = "") => {
-    setLoading(true);
+  const handleAIRemoveBG = async (item) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/browse?path=${encodeURIComponent(path)}`);
+      const response = await fetch('http://localhost:5000/api/ai/remove-bg', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: item.path })
+      });
       const data = await response.json();
-      setItems(data.items || []);
-      setCurrentPath(data.currentPath || "");
-    } catch (error) {
-      console.error("Error fetching items:", error);
+      if (data.success) {
+        alert('Background removed image created: ' + data.outPath);
+        fetchItemsService(currentPath);
+      } else {
+        alert(data.error || 'Remove background failed');
+      }
+    } catch (err) {
+      alert('Remove background failed!');
+      console.error(err);
     }
-    setLoading(false);
   };
 
-  // Load initial files
-  useEffect(() => {
-    fetchItems();
-    fetchStorageInfo();
-  }, []);
-
-  // Apply dark mode
-  useEffect(() => {
-    if (darkMode) {
-      document.body.classList.add('dark-mode');
-    } else {
-      document.body.classList.remove('dark-mode');
+  // Bulk delete
+  const handleBulkDelete = async () => {
+    if (selectedItems.size === 0) return;
+    if (!window.confirm(`Delete ${selectedItems.size} item(s)?`)) {
+      return;
     }
-  }, [darkMode]);
+    await bulkDeleteService(items, selectedItems);
+    fetchItemsService(currentPath);
+    fetchStorageInfo();
+    setSelectedItems(new Set());
+    setSelectedItem(null);
+    setFileContent(null);
+  };
 
-  // Keyboard shortcuts
+  // Copy/Cut/Paste operations
+  const handlePaste = async () => {
+    if (!clipboard || clipboard.items.length === 0) return;
+
+    try {
+      const response = await fetch('http://localhost:5000/api/paste', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: clipboard.items.map(item => item.path),
+          targetPath: currentPath,
+          operation: clipboard.operation
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        fetchItemsService(currentPath);
+        fetchStorageInfo();
+        if (clipboard.operation === 'cut') {
+          setClipboard(null);
+        }
+      } else {
+        alert(data.error || "Paste failed");
+      }
+    } catch (error) {
+      alert("Paste failed!");
+      console.error("Error pasting:", error);
+    }
+  };
+
   useEffect(() => {
     const handleKeyboard = (e) => {
       // Ctrl+A - Select all
@@ -124,15 +158,14 @@ function App() {
         setSelectedItem(null);
       }
     };
-
     document.addEventListener('keydown', handleKeyboard);
     return () => document.removeEventListener('keydown', handleKeyboard);
-  }, [selectedItems, clipboard, items]);
+  }, [selectedItems, clipboard, items, handleBulkDelete, handlePaste, items]);
 
   // Fetch storage info
   const fetchStorageInfo = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/storage');
+      const response = await fetch('http://localhost:5000/storage');
       const data = await response.json();
       setStorageInfo(data);
     } catch (error) {
@@ -145,7 +178,7 @@ function App() {
     if (item.type === "folder") {
       setFileContent(null);
       setSelectedItem(null);
-      fetchItems(item.path);
+      fetchItemsService(item.path);
     } else {
       setSelectedItem(item);
       // Fetch file content for text files
@@ -167,7 +200,7 @@ function App() {
   // Open file (double-click or context menu)
   const handleOpenFile = (item) => {
     if (item.type === "folder") {
-      fetchItems(item.path);
+      fetchItemsService(item.path);
     } else if (isImage(item)) {
       // Remove leading 'backend/files/' if present
       let imgPath = item.path;
@@ -192,7 +225,7 @@ function App() {
     const newPath = parts.join("/");
     setFileContent(null);
     setSelectedItem(null);
-    fetchItems(newPath);
+    fetchItemsService(newPath);
   };
 
   // Navigate to specific breadcrumb
@@ -201,64 +234,21 @@ function App() {
     const newPath = parts.slice(0, index + 1).join("/");
     setFileContent(null);
     setSelectedItem(null);
-    fetchItems(newPath);
-  };
-
-  // Upload files
-  const handleFileUpload = async (files) => {
-    const formData = new FormData();
-    Array.from(files).forEach(file => {
-      formData.append('files', file);
-    });
-
-    setUploadProgress({ current: 0, total: files.length });
-
-    try {
-      const response = await fetch(`http://localhost:5000/api/upload?path=${encodeURIComponent(currentPath)}`, {
-        method: 'POST',
-        body: formData
-      });
-      const data = await response.json();
-      if (data.success) {
-        fetchItems(currentPath);
-        fetchStorageInfo();
-        setUploadProgress(null);
-        alert(`${data.files.length} file(s) uploaded successfully!`);
-      }
-    } catch (error) {
-      setUploadProgress(null);
-      alert("Upload failed!");
-      console.error("Error uploading files:", error);
-    }
+    fetchItemsService(newPath);
   };
 
   // Create new folder
   const handleCreateFolder = async () => {
-    if (!newFolderName.trim()) {
-      alert("Please enter a folder name");
-      return;
-    }
-
-    try {
-      const response = await fetch('http://localhost:5000/api/create-folder', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          path: currentPath,
-          folderName: newFolderName
-        })
-      });
-      const data = await response.json();
-      if (data.success) {
-        fetchItems(currentPath);
-        setShowNewFolderDialog(false);
-        setNewFolderName("");
-      } else {
-        alert(data.error || "Failed to create folder");
-      }
-    } catch (error) {
-      alert("Failed to create folder!");
-      console.error("Error creating folder:", error);
+    const data = await createFolderService(currentPath, newFolderName);
+    if (data.success) {
+      // Always refresh and update the UI after folder creation
+      const refreshed = await fetchItemsService(currentPath);
+      setItems(refreshed.items);
+      setCurrentPath(refreshed.currentPath);
+      setShowNewFolderDialog(false);
+      setNewFolderName("");
+    } else {
+      alert(data.error || "Failed to create folder");
     }
   };
 
@@ -267,108 +257,14 @@ function App() {
     if (!window.confirm(`Are you sure you want to delete "${item.name}"?`)) {
       return;
     }
-
-    try {
-      const response = await fetch(`http://localhost:5000/api/delete?path=${encodeURIComponent(item.path)}`, {
-        method: 'DELETE'
-      });
-      const data = await response.json();
-      if (data.success) {
-        fetchItems(currentPath);
-        fetchStorageInfo();
-        setSelectedItem(null);
-        setFileContent(null);
-      } else {
-        alert(data.error || "Failed to delete");
-      }
-    } catch (error) {
-      alert("Failed to delete!");
-      console.error("Error deleting:", error);
-    }
-  };
-
-  // Bulk delete
-  const handleBulkDelete = async () => {
-    if (selectedItems.size === 0) return;
-    
-    if (!window.confirm(`Delete ${selectedItems.size} item(s)?`)) {
-      return;
-    }
-
-    const selectedItemsList = Array.from(selectedItems).map(idx => items[idx]);
-    
-    for (const item of selectedItemsList) {
-      try {
-        await fetch(`http://localhost:5000/api/delete?path=${encodeURIComponent(item.path)}`, {
-          method: 'DELETE'
-        });
-      } catch (error) {
-        console.error("Error deleting:", error);
-      }
-    }
-    
-    fetchItems(currentPath);
-    fetchStorageInfo();
-    setSelectedItems(new Set());
-  };
-
-  // Copy/Cut/Paste operations
-  const handlePaste = async () => {
-    if (!clipboard || clipboard.items.length === 0) return;
-
-    try {
-      const response = await fetch('http://localhost:5000/api/paste', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: clipboard.items.map(item => item.path),
-          targetPath: currentPath,
-          operation: clipboard.operation
-        })
-      });
-      const data = await response.json();
-      if (data.success) {
-        fetchItems(currentPath);
-        fetchStorageInfo();
-        if (clipboard.operation === 'cut') {
-          setClipboard(null);
-        }
-      } else {
-        alert(data.error || "Paste failed");
-      }
-    } catch (error) {
-      alert("Paste failed!");
-      console.error("Error pasting:", error);
-    }
-  };
-
-  // Rename item
-  const handleRename = async () => {
-    if (!renameDialog.newName.trim()) {
-      alert("Please enter a new name");
-      return;
-    }
-
-    try {
-      const response = await fetch('http://localhost:5000/api/rename', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          oldPath: renameDialog.item.path,
-          newName: renameDialog.newName
-        })
-      });
-      const data = await response.json();
-      if (data.success) {
-        fetchItems(currentPath);
-        setRenameDialog(null);
-        setSelectedItem(null);
-      } else {
-        alert(data.error || "Failed to rename");
-      }
-    } catch (error) {
-      alert("Failed to rename!");
-      console.error("Error renaming:", error);
+    const data = await deleteService(item);
+    if (data.success) {
+      fetchItemsService(currentPath);
+      fetchStorageInfo();
+      setSelectedItem(null);
+      setFileContent(null);
+    } else {
+      alert(data.error || "Failed to delete");
     }
   };
 
@@ -415,33 +311,34 @@ function App() {
     return () => document.removeEventListener('click', closeContextMenu);
   }, []);
 
-  // Format file size
-  const formatSize = (bytes) => {
-    if (bytes === 0) return "0 Bytes";
-    const k = 1024;
-    const sizes = ["Bytes", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + " " + sizes[i];
+  // Upload files
+  const handleFileUpload = async (files) => {
+    setUploadProgress({ current: 0, total: files.length });
+    const data = await fileUploadService(files, currentPath);
+    if (data.success) {
+      // Always refresh and update the UI after upload
+      const refreshed = await fetchItemsService(currentPath);
+      setItems(refreshed.items);
+      setCurrentPath(refreshed.currentPath);
+      fetchStorageInfo();
+      setUploadProgress(null);
+      alert(`${files.length} file(s) uploaded successfully!`);
+    } else {
+      setUploadProgress(null);
+      alert("Upload failed!");
+    }
   };
-
-  // Format date
-  const formatDate = (date) => {
-    if (!date) return "";
-    return new Date(date).toLocaleString();
-  };
-
-  // Get file icon based on extension
-  const getFileIcon = (item) => {
-    if (item.type === "folder") return "📁";
-    
-    const ext = item.extension || "";
+  // File icon helper
+  function getFileIcon(item) {
+    const ext = item.extension;
     const iconMap = {
+      folder: "📁",
+      pdf: "📄",
+      doc: "📄",
+      docx: "📄",
       txt: "📄",
-      pdf: "📕",
-      doc: "📘",
-      docx: "📘",
-      xls: "📗",
-      xlsx: "📗",
+      xls: "📊",
+      xlsx: "📊",
       ppt: "📙",
       pptx: "📙",
       jpg: "🖼️",
@@ -466,9 +363,8 @@ function App() {
       cpp: "⚙️",
       c: "⚙️"
     };
-    
     return iconMap[ext] || "📄";
-  };
+  }
 
   // Get breadcrumb parts
   const breadcrumbs = currentPath ? currentPath.split("/").filter(Boolean) : [];
@@ -527,6 +423,14 @@ function App() {
     setSelectedItems(newSelected);
   };
 
+  useEffect(() => {
+    if (darkMode) {
+      document.body.classList.add('dark-mode');
+    } else {
+      document.body.classList.remove('dark-mode');
+    }
+  }, [darkMode]);
+
   return (
     <div className={`app ${darkMode ? 'dark-mode' : ''}`}>
       {/* Header */}
@@ -547,7 +451,7 @@ function App() {
             className="action-btn"
             onClick={() => {
               setCurrentPath("");
-              fetchItems(folderInput);
+              fetchItemsService(folderInput);
             }}
             title="Go to folder"
           >Go</button>
@@ -629,7 +533,7 @@ function App() {
         <div className="breadcrumbs">
           <span 
             className="breadcrumb-item clickable"
-            onClick={() => fetchItems("backend/files")}
+            onClick={() => fetchItemsService("backend/files")}
           >
             Home
           </span>
@@ -741,21 +645,11 @@ function App() {
         onDrop={handleDrop}
       >
         <div className={`file-area ${dragActive ? "drag-active" : ""}`}>
-          {dragActive && (
-            <div className="drag-overlay">
-              <div className="drag-message">📤 Drop files here to upload</div>
-            </div>
-          )}
           {loading ? (
             <div className="loading">Loading...</div>
           ) : filteredAndSortedItems.length === 0 ? (
             <div className="empty">
-              <p>{searchQuery ? `No results for "${searchQuery}"` : "No files or folders"}</p>
-              {!searchQuery && (
-                <button className="upload-prompt-btn" onClick={() => fileInputRef.current.click()}>
-                  📤 Upload Files
-                </button>
-              )}
+              <p>No files or folders</p>
             </div>
           ) : (
             <>
@@ -769,39 +663,20 @@ function App() {
               )}
               <div className={`items-container ${viewMode} grid-${gridSize}`}>
                 {filteredAndSortedItems.map((item, index) => (
-                  <div
+                  <FileItem
                     key={index}
-                    className={`item ${selectedItem?.name === item.name ? "selected" : ""} ${selectedItems.has(index) ? "multi-selected" : ""}`}
+                    item={item}
+                    index={index}
+                    selected={selectedItem?.name === item.name}
+                    multiSelected={selectedItems.has(index)}
                     onClick={() => handleItemClick(item)}
                     onDoubleClick={() => handleOpenFile(item)}
-                    onContextMenu={(e) => handleContextMenu(e, item)}
-                  >
-                    <div className="item-icon">
-                      {isImage(item) ? (
-                        <img 
-                          src={`http://localhost:5000/api/thumbnail?path=${encodeURIComponent(item.path)}`}
-                          alt={item.name}
-                          className="thumbnail"
-                          onError={(e) => e.target.style.display = 'none'}
-                        />
-                      ) : (
-                        getFileIcon(item)
-                      )}
-                    </div>
-                    <div className="item-details">
-                      <div className="item-name" title={item.name}>
-                        {item.name}
-                      </div>
-                      {viewMode === "list" && (
-                      <>
-                        <div className="item-size">{item.type === "folder" ? "-" : formatSize(item.size)}</div>
-                        <div className="item-date">{formatDate(item.modified)}</div>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+                    onContextMenu={e => handleContextMenu(e, item)}
+                    viewMode={viewMode}
+                    gridSize={gridSize}
+                  />
+                ))}
+              </div>
             </>
           )}
         </div>
@@ -973,29 +848,17 @@ function App() {
         </div>
       )}
 
-      {/* New Folder Dialog */}
-      {showNewFolderDialog && (
-        <div className="modal-overlay" onClick={() => setShowNewFolderDialog(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Create New Folder</h3>
-            <input 
-              type="text"
-              placeholder="Folder name"
-              value={newFolderName}
-              onChange={(e) => setNewFolderName(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleCreateFolder()}
-              autoFocus
-            />
-            <div className="modal-buttons">
-              <button onClick={handleCreateFolder}>Create</button>
-              <button onClick={() => {
-                setShowNewFolderDialog(false);
-                setNewFolderName("");
-              }}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <NewFolderDialog
+        show={showNewFolderDialog}
+        newFolderName={newFolderName}
+        setNewFolderName={setNewFolderName}
+        handleCreateFolder={handleCreateFolder}
+        closeDialog={() => {
+          setShowNewFolderDialog(false);
+          setNewFolderName("");
+        }}
+        existingFolders={items.filter(item => item.type === 'folder').map(item => item.name)}
+      />
 
       {/* Rename Dialog */}
       {renameDialog && (
@@ -1044,75 +907,14 @@ function App() {
         </div>
       )}
 
-      {/* Properties Dialog */}
-      {showProperties && (
-        <div className="modal-overlay" onClick={() => setShowProperties(null)}>
-          <div className="modal properties-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>📋 Properties</h3>
-            <div className="properties-content">
-              <div className="property-row">
-                <div className="property-icon">{getFileIcon(showProperties)}</div>
-                <div className="property-name">{showProperties.name}</div>
-              </div>
-              
-              <div className="property-section">
-                <h4>General</h4>
-                <table className="properties-table">
-                  <tbody>
-                    <tr>
-                      <td className="property-label">Type:</td>
-                      <td className="property-value">
-                        {showProperties.type === 'folder' ? 'Folder' : `${showProperties.extension?.toUpperCase() || 'File'} File`}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="property-label">Location:</td>
-                      <td className="property-value">{showProperties.path}</td>
-                    </tr>
-                    <tr>
-                      <td className="property-label">Size:</td>
-                      <td className="property-value">
-                        {formatSize(showProperties.size)} ({showProperties.size.toLocaleString()} bytes)
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="property-label">Modified:</td>
-                      <td className="property-value">{formatDate(showProperties.modified)}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              {isImage(showProperties) && (
-                <div className="property-section">
-                  <h4>Preview</h4>
-                  <div className="properties-preview">
-                    <img 
-                      src={`http://localhost:5000/api/file?path=${encodeURIComponent(showProperties.path.replace('backend/files/', ''))}`}
-                      alt={showProperties.name}
-                      onClick={() => {
-                        let imgPath = showProperties.path;
-                        if (imgPath.startsWith('backend/files/')) {
-                          imgPath = imgPath.replace('backend/files/', '');
-                        }
-                        setImageViewer({
-                          item: showProperties,
-                          url: `http://localhost:5000/api/file?path=${encodeURIComponent(imgPath)}`
-                        });
-                        setShowProperties(null);
-                      }}
-                      style={{cursor: 'pointer', maxWidth: '100%', borderRadius: '8px'}}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="modal-buttons">
-              <button onClick={() => setShowProperties(null)}>Close</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <PropertiesDialog
+        showProperties={showProperties}
+        setShowProperties={setShowProperties}
+        formatSize={formatSize}
+        formatDate={formatDate}
+        getFileIcon={getFileIcon}
+        setImageViewer={setImageViewer}
+      />
     </div>
   );
 }
