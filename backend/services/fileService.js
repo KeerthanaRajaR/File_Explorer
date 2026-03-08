@@ -11,7 +11,12 @@ function addFile(baseDir, folderPath, fileName, fileContent) {
 function deleteFile(baseDir, filePath) {
   const targetPath = path.join(baseDir, filePath);
   if (fs.existsSync(targetPath)) {
-    fs.unlinkSync(targetPath);
+    const stats = fs.statSync(targetPath);
+    if (stats.isDirectory()) {
+      fs.rmSync(targetPath, { recursive: true, force: true });
+    } else {
+      fs.unlinkSync(targetPath);
+    }
     return true;
   }
   return false;

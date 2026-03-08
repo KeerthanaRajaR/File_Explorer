@@ -10,6 +10,75 @@ export async function fetchItems(path = "") {
   }
 }
 
+export async function fetchStorageInfo() {
+  try {
+    const response = await fetch("http://localhost:5000/storage");
+    return await response.json();
+  } catch (error) {
+    console.error("Error fetching storage:", error);
+    return null;
+  }
+}
+
+export async function fetchFileContent(filePath) {
+  try {
+    const response = await fetch(
+      `http://localhost:5000/api/file?path=${encodeURIComponent(filePath)}`
+    );
+    const data = await response.json();
+    return data.content || null;
+  } catch (error) {
+    console.error("Error fetching file:", error);
+    return null;
+  }
+}
+
+export async function pasteItems(items, targetPath, operation) {
+  try {
+    const response = await fetch("http://localhost:5000/api/paste", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        items,
+        targetPath,
+        operation,
+      }),
+    });
+    return await response.json();
+  } catch (error) {
+    console.error("Error pasting:", error);
+    return { success: false, error: "Paste failed" };
+  }
+}
+
+export async function renameItem(oldPath, newPath) {
+  try {
+    const response = await fetch("http://localhost:5000/api/rename", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ oldPath, newPath }),
+    });
+    return await response.json();
+  } catch (error) {
+    console.error("Error renaming:", error);
+    return { success: false, error: "Rename failed" };
+  }
+}
+
+export async function removeImageBackground(itemPath) {
+  try {
+    const response = await fetch("http://localhost:5000/api/ai/remove-bg", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: itemPath }),
+    });
+    return await response.json();
+  } catch (error) {
+    console.error("Error removing image background:", error);
+    return { success: false, error: "Remove background failed" };
+  }
+}
+
 export async function handleCreateFolder(currentPath, newFolderName) {
   if (!newFolderName.trim()) {
     alert("Please enter a folder name");
@@ -32,11 +101,22 @@ export async function handleCreateFolder(currentPath, newFolderName) {
 
 export async function handleDelete(item) {
   try {
-    const response = await fetch(`http://localhost:5000/api/delete?path=${encodeURIComponent(item.path)}`, {
-      method: 'DELETE'
+    const deleteResponse = await fetch(
+      `http://localhost:5000/api/delete?path=${encodeURIComponent(item.path)}`,
+      { method: "DELETE" }
+    );
+
+    if (deleteResponse.ok) {
+      return await deleteResponse.json();
+    }
+
+    // Backward compatibility for servers exposing POST /api/delete.
+    const postResponse = await fetch("http://localhost:5000/api/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filePath: item.path }),
     });
-    const data = await response.json();
-    return data;
+    return await postResponse.json();
   } catch (error) {
     alert("Failed to delete!");
     console.error("Error deleting:", error);
