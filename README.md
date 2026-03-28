@@ -151,3 +151,8 @@ The frontend follows a **highly modular architecture** with clear separation of 
 - React
 - CSS
 
+## Demo Video
+
+https://github.com/user-attachments/assets/325df175-a714-4a8b-9101-4aef09860747
+
+
